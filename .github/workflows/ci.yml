@@ -1,0 +1,56 @@
+name: Continuous Integration
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    name: Run ArangoDB Tri-Modal GraphRAG Test Suite
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Start ArangoDB 3.12 with FAISS Vector Indexing
+        run: |
+          docker run -d --name arango_ci \
+            -p 8529:8529 \
+            -e ARANGO_NO_AUTH=1 \
+            arangodb/arangodb:3.12.4 \
+            arangod --server.endpoint tcp://0.0.0.0:8529 --experimental-vector-index=true
+
+      - name: Wait for ArangoDB Readiness
+        run: |
+          echo "Waiting for ArangoDB 3.12 endpoint to become available..."
+          for i in {1..30}; do
+            if curl -sf http://localhost:8529/_api/version | grep -q "server"; then
+              echo "ArangoDB is healthy and listening on port 8529."
+              exit 0
+            fi
+            echo "Waiting for ArangoDB ($i/30)..."
+            sleep 2
+          done
+          echo "Timed out waiting for ArangoDB!"
+          docker logs arango_ci
+          exit 1
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest
+
+      - name: Execute FastAPI Integration and Contract Tests
+        run: |
+          pytest tests/test_api.py -v
+

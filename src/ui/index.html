@@ -1,0 +1,614 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ArangoDB Tri-Modal GraphRAG Studio</title>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Cytoscape.js CDN -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.30.2/cytoscape.min.js"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              50: '#f0f9ff',
+              500: '#0ea5e9',
+              600: '#0284c7',
+              700: '#0369a1',
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    #cy {
+      width: 100%;
+      height: 100%;
+      min-height: 480px;
+    }
+    .custom-scrollbar::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    .custom-scrollbar::-webkit-scrollbar-track {
+      background: #0f172a;
+    }
+    .custom-scrollbar::-webkit-scrollbar-thumb {
+      background: #334155;
+      border-radius: 4px;
+    }
+    .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+      background: #475569;
+    }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col font-sans antialiased custom-scrollbar">
+
+  <!-- TOP HEADER -->
+  <header class="border-b border-slate-800 bg-slate-900/80 backdrop-blur sticky top-0 z-50 px-6 py-3.5 flex flex-wrap items-center justify-between gap-4">
+    <div class="flex items-center gap-3">
+      <div class="h-9 w-9 rounded-lg bg-gradient-to-tr from-sky-500 to-indigo-600 flex items-center justify-center font-bold text-white shadow-lg shadow-sky-500/20">
+        AG
+      </div>
+      <div>
+        <h1 class="text-base font-bold text-white flex items-center gap-2">
+          ArangoDB Tri-Modal GraphRAG Studio
+          <span class="text-xs font-semibold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 flex items-center gap-1">
+            <span class="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse"></span> Live ArangoDB 3.12
+          </span>
+        </h1>
+        <p class="text-xs text-slate-400">Adaptive LangGraph CRAG Router • 3-Signal Entity Resolution • Native AQL Subgraphs</p>
+      </div>
+    </div>
+
+    <!-- STAT PILLS & PRESET SHORTCUTS -->
+    <div class="flex items-center gap-2 flex-wrap text-xs">
+      <span id="stat-entities" class="px-2.5 py-1 rounded bg-slate-800 border border-slate-700 text-slate-300 font-mono">
+        Entities: <strong class="text-sky-400">8</strong>
+      </span>
+      <span id="stat-relations" class="px-2.5 py-1 rounded bg-slate-800 border border-slate-700 text-slate-300 font-mono">
+        Relations: <strong class="text-indigo-400">11</strong>
+      </span>
+
+      <span class="text-slate-600">|</span>
+      <span class="text-slate-400 font-medium">Presets:</span>
+      <button onclick="setQueryPreset(1)" class="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition">
+        ⚡ Lexical (Dosage)
+      </button>
+      <button onclick="setQueryPreset(2)" class="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition">
+        🔗 1-Hop (Fluconazole)
+      </button>
+      <button onclick="setQueryPreset(3)" class="px-2 py-1 rounded bg-indigo-900/40 hover:bg-indigo-800/60 text-indigo-300 border border-indigo-700/50 transition">
+        🔄 2-Hop CRAG (Tramadol)
+      </button>
+      <button onclick="setQueryPreset(4)" class="px-2 py-1 rounded bg-rose-900/30 hover:bg-rose-800/50 text-rose-300 border border-rose-700/40 transition">
+        🛡️ OOD Guard (Metformin)
+      </button>
+    </div>
+  </header>
+
+  <!-- MAIN TWO-COLUMN WORKSPACE -->
+  <main class="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-5 p-6 overflow-hidden">
+
+    <!-- LEFT COLUMN: QUERY & AGENTIC TRACE -->
+    <section class="lg:col-span-6 flex flex-col gap-4 overflow-y-auto custom-scrollbar pr-1 max-h-[calc(100vh-6rem)]">
+
+      <!-- QUERY INPUT CARD -->
+      <div class="p-4 rounded-xl bg-slate-900/90 border border-slate-800 shadow-xl">
+        <label for="query-input" class="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">
+          Relational Query Input
+        </label>
+        <div class="flex gap-2">
+          <input
+            id="query-input"
+            type="text"
+            placeholder="Ask a multi-hop relational, causal, or entity interaction query..."
+            value="A patient taking Fluoxetine is prescribed Tramadol. Trace the complete enzymatic interaction mechanism and identify the severe adverse syndrome that results."
+            class="flex-1 bg-slate-950 border border-slate-700 rounded-lg px-3.5 py-2.5 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500/50 focus:border-sky-500 transition"
+          />
+          <button
+            id="btn-run"
+            onclick="runQuery()"
+            class="bg-gradient-to-r from-sky-500 to-indigo-600 hover:from-sky-400 hover:to-indigo-500 text-white font-medium text-sm px-5 py-2.5 rounded-lg shadow-lg shadow-sky-500/20 flex items-center gap-2 transition disabled:opacity-50"
+          >
+            <span>Run Query</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- AGENT EXECUTION TRACE & DECISION CARD -->
+      <div id="card-telemetry" class="p-4 rounded-xl bg-slate-900/90 border border-slate-800 shadow-xl">
+        <div class="flex items-center justify-between mb-3 border-b border-slate-800 pb-2">
+          <h2 class="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-2">
+            <span>LangGraph Agent Telemetry</span>
+            <span id="badge-intent" class="text-[10px] px-2 py-0.5 rounded bg-slate-800 text-slate-400 font-mono">READY</span>
+          </h2>
+          <span id="telemetry-latency" class="text-xs font-mono text-amber-400">0.00 ms</span>
+        </div>
+
+        <!-- TIMELINE BADGES -->
+        <div id="trace-timeline" class="space-y-1.5 text-xs font-mono text-slate-300 mb-3 bg-slate-950 p-3 rounded-lg border border-slate-800/80">
+          <div class="text-slate-500 italic">No query executed yet. Select a preset above or click "Run Query".</div>
+        </div>
+
+        <!-- GRADER REASONING ALERT -->
+        <div id="grader-box" class="hidden p-3 rounded-lg border text-xs"></div>
+      </div>
+
+      <!-- GROUNDED RESPONSE PANEL -->
+      <div id="card-answer" class="p-4 rounded-xl bg-slate-900/90 border border-slate-800 shadow-xl">
+        <h2 class="text-xs font-bold uppercase tracking-wider text-emerald-400 mb-2 flex items-center justify-between">
+          <span>Grounded Path-Cited Response</span>
+          <span id="citation-count" class="text-[10px] font-normal text-slate-400">0 Citations</span>
+        </h2>
+        <div id="answer-content" class="text-sm leading-relaxed text-slate-200 whitespace-pre-wrap bg-slate-950 p-3.5 rounded-lg border border-slate-800/80">
+          Select or enter a query to view grounded synthesis with inline provenance tags.
+        </div>
+      </div>
+
+      <!-- SIDE-BY-SIDE DIFF CARDS -->
+      <div id="card-comparison" class="p-4 rounded-xl bg-slate-900/90 border border-slate-800 shadow-xl">
+        <h2 class="text-xs font-bold uppercase tracking-wider text-slate-300 mb-3">
+          Architecture Retrieval Comparison
+        </h2>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+          <!-- Vector -->
+          <div class="p-3 rounded-lg bg-slate-950 border border-slate-800 flex flex-col justify-between">
+            <div>
+              <div class="font-bold text-slate-300 flex justify-between items-center mb-1">
+                <span>Pure Vector</span>
+                <span id="diff-vec-lat" class="font-mono text-slate-400 text-[11px]">-</span>
+              </div>
+              <div id="diff-vec-chunks" class="text-slate-400 font-mono text-[11px] mb-2">Chunks: -</div>
+            </div>
+            <div id="diff-vec-status" class="text-[11px] text-amber-400/90">Baseline</div>
+          </div>
+          <!-- Hybrid RRF -->
+          <div class="p-3 rounded-lg bg-slate-950 border border-slate-800 flex flex-col justify-between">
+            <div>
+              <div class="font-bold text-slate-300 flex justify-between items-center mb-1">
+                <span>Hybrid RRF</span>
+                <span id="diff-hyb-lat" class="font-mono text-slate-400 text-[11px]">-</span>
+              </div>
+              <div id="diff-hyb-chunks" class="text-slate-400 font-mono text-[11px] mb-2">Chunks: -</div>
+            </div>
+            <div id="diff-hyb-status" class="text-[11px] text-amber-400/90">Baseline</div>
+          </div>
+          <!-- Tri-Modal GraphRAG -->
+          <div class="p-3 rounded-lg bg-indigo-950/30 border border-indigo-800/60 flex flex-col justify-between">
+            <div>
+              <div class="font-bold text-indigo-300 flex justify-between items-center mb-1">
+                <span>Tri-Modal GraphRAG</span>
+                <span id="diff-tri-lat" class="font-mono text-emerald-400 text-[11px]">-</span>
+              </div>
+              <div id="diff-tri-chunks" class="text-indigo-200 font-mono text-[11px] mb-2">Chunks: -</div>
+            </div>
+            <div id="diff-tri-status" class="text-[11px] text-emerald-400 font-semibold">Graph-Bridged</div>
+          </div>
+        </div>
+      </div>
+
+    </section>
+
+    <!-- RIGHT COLUMN: INTERACTIVE GRAPH & BENCHMARK SCORECARD -->
+    <section class="lg:col-span-6 flex flex-col gap-4 overflow-y-auto custom-scrollbar max-h-[calc(100vh-6rem)]">
+
+      <!-- TAB BAR -->
+      <div class="flex items-center justify-between border-b border-slate-800 pb-2">
+        <div class="flex gap-2">
+          <button id="tab-btn-graph" onclick="switchTab('graph')" class="px-3.5 py-1.5 rounded-lg text-xs font-bold bg-sky-500 text-white transition">
+            🕸️ Subgraph Studio
+          </button>
+          <button id="tab-btn-bench" onclick="switchTab('bench')" class="px-3.5 py-1.5 rounded-lg text-xs font-bold bg-slate-800 hover:bg-slate-700 text-slate-300 transition">
+            📊 Benchmark Scorecard
+          </button>
+          <button id="tab-btn-ingest" onclick="switchTab('ingest')" class="px-3.5 py-1.5 rounded-lg text-xs font-bold bg-slate-800 hover:bg-slate-700 text-slate-300 transition">
+            📥 Live Ingestion Tester
+          </button>
+        </div>
+        <button onclick="fitGraph()" class="text-xs px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded border border-slate-700 transition">
+          Reset View
+        </button>
+      </div>
+
+      <!-- TAB 1: CYTOSCAPE GRAPH STUDIO -->
+      <div id="tab-content-graph" class="flex flex-col gap-3">
+        <!-- Canvas Card -->
+        <div class="relative w-full h-[520px] rounded-xl bg-slate-900/90 border border-slate-800 shadow-xl overflow-hidden flex flex-col">
+          <!-- Canvas Top Bar -->
+          <div class="absolute top-3 left-3 z-10 flex items-center gap-2 bg-slate-950/80 backdrop-blur px-3 py-1.5 rounded-lg border border-slate-800 text-[11px]">
+            <span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-sky-400"></span> Drug</span>
+            <span class="flex items-center gap-1.5 ml-2"><span class="w-2.5 h-2.5 rounded-full bg-amber-400"></span> Enzyme</span>
+            <span class="flex items-center gap-1.5 ml-2"><span class="w-2.5 h-2.5 rounded-full bg-rose-400"></span> AdverseEvent</span>
+            <span class="flex items-center gap-1.5 ml-2"><span class="w-2.5 h-2.5 rounded-full bg-yellow-400 ring-2 ring-yellow-400/50"></span> Traversed Path</span>
+          </div>
+
+          <!-- Cytoscape Container -->
+          <div id="cy" class="flex-1"></div>
+        </div>
+
+        <!-- Node Inspector Card -->
+        <div id="node-inspector" class="p-3.5 rounded-xl bg-slate-900/90 border border-slate-800 text-xs text-slate-300">
+          <div class="text-slate-500 italic">Click any node in the graph above to inspect canonical metadata, mention counts, and deduplicated aliases.</div>
+        </div>
+      </div>
+
+      <!-- TAB 2: BENCHMARK SCORECARD -->
+      <div id="tab-content-bench" class="hidden flex flex-col gap-4">
+        <div class="p-4 rounded-xl bg-slate-900/90 border border-slate-800 shadow-xl">
+          <div class="flex items-center justify-between mb-3 border-b border-slate-800 pb-2">
+            <h3 class="text-xs font-bold uppercase tracking-wider text-slate-300">
+              Quantitative IR & RAG Evaluation Metrics (8-Query Ground Truth)
+            </h3>
+            <span class="text-[11px] text-slate-500 font-mono">benchmarks/benchmark_results.json</span>
+          </div>
+          <div class="overflow-x-auto">
+            <table class="w-full text-left text-xs">
+              <thead class="text-slate-400 bg-slate-950 uppercase border-b border-slate-800">
+                <tr>
+                  <th class="py-2.5 px-3">Architecture</th>
+                  <th class="py-2.5 px-2 text-right">Context Recall</th>
+                  <th class="py-2.5 px-2 text-right">Multi-Hop Recall</th>
+                  <th class="py-2.5 px-2 text-right">Entity Bridge</th>
+                  <th class="py-2.5 px-2 text-right">OOD Guard</th>
+                  <th class="py-2.5 px-2 text-right">Latency</th>
+                </tr>
+              </thead>
+              <tbody id="bench-table-body" class="divide-y divide-slate-800 font-mono">
+                <tr><td colspan="6" class="py-4 text-center text-slate-500">Loading benchmark scorecard...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- TAB 3: LIVE INGESTION TESTER -->
+      <div id="tab-content-ingest" class="hidden flex flex-col gap-4">
+        <div class="p-4 rounded-xl bg-slate-900/90 border border-slate-800 shadow-xl">
+          <h3 class="text-xs font-bold uppercase tracking-wider text-slate-300 mb-2">
+            Test Live SHA-256 Ingestion & 3-Signal Entity Deduplication
+          </h3>
+          <p class="text-xs text-slate-400 mb-4">
+            Input arbitrary text or re-submit an existing document to test instant SHA-256 cache bypass or entity canonicalization.
+          </p>
+
+          <div class="space-y-3 text-xs">
+            <div>
+              <label class="block text-slate-400 font-medium mb-1">Document Source ID</label>
+              <input id="ingest-source" type="text" value="benchmark_doc_new.txt" class="w-full bg-slate-950 border border-slate-700 rounded px-3 py-2 text-slate-100 font-mono">
+            </div>
+            <div>
+              <label class="block text-slate-400 font-medium mb-1">Document Content</label>
+              <textarea id="ingest-text" rows="4" class="w-full bg-slate-950 border border-slate-700 rounded px-3 py-2 text-slate-100 font-mono">Patient admitted following concurrent administration of Fluoxetine Hydrochloride (Prozac) (40mg/day) for depressive disorder and Tramadol HCl (100mg) for acute orthopedic pain.</textarea>
+            </div>
+            <div class="flex items-center gap-2">
+              <input id="ingest-dedup" type="checkbox" checked class="rounded bg-slate-950 border-slate-700 text-sky-500 focus:ring-sky-500">
+              <label for="ingest-dedup" class="text-slate-300">Enable 3-Signal Hybrid Entity Resolution (Deduplication)</label>
+            </div>
+            <button onclick="runIngest()" class="px-4 py-2 rounded bg-sky-500 hover:bg-sky-400 text-white font-medium shadow transition">
+              Ingest Document
+            </button>
+          </div>
+
+          <div id="ingest-result" class="mt-4 hidden p-3 rounded-lg bg-slate-950 border border-slate-800 text-xs font-mono text-slate-300"></div>
+        </div>
+      </div>
+
+    </section>
+  </main>
+
+  <script>
+    let cy = null;
+    let globalGraphData = { nodes: [], edges: [] };
+
+    const PRESETS = {
+      1: "What exact dosage of Fluoxetine Hydrochloride and Tramadol HCl was administered in the emergency ward admission note?",
+      2: "Which specific hepatic cytochrome P450 enzyme is potently inhibited by Fluconazole?",
+      3: "A patient taking Fluoxetine is prescribed Tramadol. Trace the complete enzymatic interaction mechanism and identify the severe adverse syndrome that results.",
+      4: "What is the metabolic interaction between Metformin and Lisinopril in renal failure patients?"
+    };
+
+    function setQueryPreset(num) {
+      if (PRESETS[num]) {
+        document.getElementById('query-input').value = PRESETS[num];
+        runQuery();
+      }
+    }
+
+    function switchTab(tab) {
+      document.getElementById('tab-content-graph').classList.toggle('hidden', tab !== 'graph');
+      document.getElementById('tab-content-bench').classList.toggle('hidden', tab !== 'bench');
+      document.getElementById('tab-content-ingest').classList.toggle('hidden', tab !== 'ingest');
+
+      document.getElementById('tab-btn-graph').className = tab === 'graph' ? 'px-3.5 py-1.5 rounded-lg text-xs font-bold bg-sky-500 text-white transition' : 'px-3.5 py-1.5 rounded-lg text-xs font-bold bg-slate-800 hover:bg-slate-700 text-slate-300 transition';
+      document.getElementById('tab-btn-bench').className = tab === 'bench' ? 'px-3.5 py-1.5 rounded-lg text-xs font-bold bg-sky-500 text-white transition' : 'px-3.5 py-1.5 rounded-lg text-xs font-bold bg-slate-800 hover:bg-slate-700 text-slate-300 transition';
+      document.getElementById('tab-btn-ingest').className = tab === 'ingest' ? 'px-3.5 py-1.5 rounded-lg text-xs font-bold bg-sky-500 text-white transition' : 'px-3.5 py-1.5 rounded-lg text-xs font-bold bg-slate-800 hover:bg-slate-700 text-slate-300 transition';
+
+      if (tab === 'graph' && cy) {
+        setTimeout(() => cy.resize(), 50);
+      }
+      if (tab === 'bench') {
+        loadBenchmarks();
+      }
+    }
+
+    async function initGraph() {
+      try {
+        const resp = await fetch('/api/graph');
+        const data = await resp.json();
+        globalGraphData = data;
+
+        document.getElementById('stat-entities').innerHTML = `Entities: <strong class="text-sky-400">${data.nodes.length}</strong>`;
+        document.getElementById('stat-relations').innerHTML = `Relations: <strong class="text-indigo-400">${data.edges.length}</strong>`;
+
+        cy = cytoscape({
+          container: document.getElementById('cy'),
+          elements: {
+            nodes: data.nodes,
+            edges: data.edges
+          },
+          style: [
+            {
+              selector: 'node',
+              style: {
+                'label': 'data(canonical_name)',
+                'color': '#f8fafc',
+                'font-size': '11px',
+                'text-valign': 'bottom',
+                'text-margin-y': '6px',
+                'width': 34,
+                'height': 34,
+                'background-color': '#0ea5e9',
+                'border-width': 2,
+                'border-color': '#38bdf8'
+              }
+            },
+            {
+              selector: 'node[entity_type = "Enzyme"]',
+              style: {
+                'background-color': '#d97706',
+                'border-color': '#fbbf24'
+              }
+            },
+            {
+              selector: 'node[entity_type = "AdverseEvent"]',
+              style: {
+                'background-color': '#e11d48',
+                'border-color': '#f43f5e'
+              }
+            },
+            {
+              selector: 'edge',
+              style: {
+                'width': 2,
+                'line-color': '#475569',
+                'target-arrow-color': '#475569',
+                'target-arrow-shape': 'triangle',
+                'curve-style': 'bezier',
+                'label': 'data(label)',
+                'font-size': '8px',
+                'color': '#94a3b8',
+                'text-rotation': 'autorotate',
+                'text-background-opacity': 0.8,
+                'text-background-color': '#020617',
+                'text-background-padding': '2px'
+              }
+            },
+            // Highlighted Active Subgraph Styles
+            {
+              selector: 'node.highlighted',
+              style: {
+                'background-color': '#eab308',
+                'border-color': '#fef08a',
+                'border-width': 4,
+                'width': 44,
+                'height': 44,
+                'color': '#fef08a',
+                'font-weight': 'bold',
+                'font-size': '13px',
+                'shadow-blur': 15,
+                'shadow-color': '#eab308',
+                'shadow-opacity': 0.8
+              }
+            },
+            {
+              selector: 'edge.highlighted',
+              style: {
+                'width': 4,
+                'line-color': '#eab308',
+                'target-arrow-color': '#eab308',
+                'color': '#fef08a',
+                'font-weight': 'bold',
+                'shadow-blur': 8,
+                'shadow-color': '#eab308'
+              }
+            },
+            {
+              selector: '.dimmed',
+              style: {
+                'opacity': 0.25
+              }
+            }
+          ],
+          layout: {
+            name: 'cose',
+            animate: false,
+            nodeRepulsion: 6000,
+            idealEdgeLength: 100,
+            padding: 30
+          }
+        });
+
+        cy.on('tap', 'node', function(evt){
+          const d = evt.target.data();
+          const inspector = document.getElementById('node-inspector');
+          const aliasesList = d.aliases ? d.aliases.join(', ') : d.canonical_name;
+          inspector.innerHTML = `
+            <div class="flex items-center justify-between mb-1.5">
+              <span class="font-bold text-sm text-sky-400">${d.canonical_name}</span>
+              <span class="px-2 py-0.5 rounded text-[10px] bg-slate-800 border border-slate-700 text-slate-300">${d.entity_type}</span>
+            </div>
+            <div class="space-y-1">
+              <div><strong class="text-slate-400">Description:</strong> ${d.description || 'N/A'}</div>
+              <div><strong class="text-slate-400">Mentions Count:</strong> <span class="text-amber-400">${d.mention_count || 1}</span></div>
+              <div><strong class="text-slate-400">Resolved Aliases:</strong> <span class="font-mono text-emerald-400">${aliasesList}</span></div>
+            </div>
+          `;
+        });
+
+      } catch (err) {
+        console.error("Failed to load graph:", err);
+      }
+    }
+
+    function fitGraph() {
+      if (cy) {
+        cy.elements().removeClass('highlighted dimmed');
+        cy.layout({ name: 'cose', animate: true, padding: 30 }).run();
+      }
+    }
+
+    async function runQuery() {
+      const q = document.getElementById('query-input').value.trim();
+      if (!q) return;
+
+      const btn = document.getElementById('btn-run');
+      btn.disabled = true;
+      btn.innerHTML = `<span class="animate-spin mr-1">⌛</span> Running...`;
+
+      try {
+        const resp = await fetch('/api/query', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ query: q })
+        });
+        const data = await resp.json();
+        const ag = data.agent_result;
+
+        // 1. Update Telemetry Card
+        document.getElementById('badge-intent').innerText = `${ag.query_intent} (${ag.retrieval_strategy})`;
+        document.getElementById('telemetry-latency').innerText = `${ag.total_latency_ms} ms`;
+
+        const traceBox = document.getElementById('trace-timeline');
+        traceBox.innerHTML = ag.agent_trace.map(t => `<div class="leading-relaxed">• ${t}</div>`).join('');
+
+        const graderBox = document.getElementById('grader-box');
+        graderBox.classList.remove('hidden', 'bg-emerald-950/40', 'border-emerald-700', 'text-emerald-300', 'bg-amber-950/40', 'border-amber-700', 'text-amber-300', 'bg-rose-950/40', 'border-rose-700', 'text-rose-300');
+        if (ag.grader_status === 'SUFFICIENT') {
+          graderBox.classList.add('bg-emerald-950/40', 'border-emerald-700', 'text-emerald-300');
+        } else if (ag.grader_status === 'NEEDS_HOP_EXPANSION') {
+          graderBox.classList.add('bg-amber-950/40', 'border-amber-700', 'text-amber-300');
+        } else {
+          graderBox.classList.add('bg-rose-950/40', 'border-rose-700', 'text-rose-300');
+        }
+        graderBox.innerHTML = `<strong>CRAG Evaluator [${ag.grader_status}]:</strong> ${ag.grader_reasoning}`;
+
+        // 2. Update Grounded Answer
+        document.getElementById('citation-count').innerText = `${(ag.citations || []).length} Citations`;
+        document.getElementById('answer-content').innerHTML = ag.final_answer
+          .replace(/\[Doc: ([^\]]+)\]/g, '<span class="px-1.5 py-0.5 rounded bg-sky-900/60 border border-sky-600/50 text-sky-200 font-mono text-xs">Doc: $1</span>')
+          .replace(/\[GraphEdge: ([^\]]+)\]/g, '<span class="px-1.5 py-0.5 rounded bg-amber-900/60 border border-amber-600/50 text-amber-200 font-mono text-xs">Edge: $1</span>');
+
+        // 3. Update Diff Cards
+        const comp = data.comparison;
+        document.getElementById('diff-vec-lat').innerText = `${comp.pure_vector.latency_ms} ms`;
+        document.getElementById('diff-vec-chunks').innerText = `Chunks: [${comp.pure_vector.chunk_ids.join(', ')}]`;
+        document.getElementById('diff-vec-status').innerText = comp.pure_vector.missed_chunks.length > 0 
+          ? `[!] Missed: ${comp.pure_vector.missed_chunks.join(', ')}`
+          : 'Complete Context';
+
+        document.getElementById('diff-hyb-lat').innerText = `${comp.hybrid_rrf.latency_ms} ms`;
+        document.getElementById('diff-hyb-chunks').innerText = `Chunks: [${comp.hybrid_rrf.chunk_ids.join(', ')}]`;
+        document.getElementById('diff-hyb-status').innerText = comp.hybrid_rrf.missed_chunks.length > 0 
+          ? `[!] Missed: ${comp.hybrid_rrf.missed_chunks.join(', ')}`
+          : 'Complete Context';
+
+        document.getElementById('diff-tri-lat').innerText = `${comp.tri_modal_graphrag.latency_ms} ms`;
+        document.getElementById('diff-tri-chunks').innerText = `Chunks: [${comp.tri_modal_graphrag.chunk_ids.join(', ')}]`;
+        document.getElementById('diff-tri-status').innerText = `Bridged: ${comp.tri_modal_graphrag.bridged_chunks_count} hidden doc(s)`;
+
+        // 4. Highlight Cytoscape Active Subgraph
+        if (cy && data.highlighted_entities && data.highlighted_entities.length > 0) {
+          cy.elements().removeClass('highlighted').addClass('dimmed');
+          const highNames = new Set(data.highlighted_entities.map(n => n.toLowerCase()));
+
+          const activeNodes = cy.nodes().filter(n => highNames.has(n.data('canonical_name').toLowerCase()));
+          activeNodes.removeClass('dimmed').addClass('highlighted');
+
+          // Highlight connected edges between highlighted nodes
+          const activeEdges = cy.edges().filter(e => {
+            return activeNodes.contains(e.source()) && activeNodes.contains(e.target());
+          });
+          activeEdges.removeClass('dimmed').addClass('highlighted');
+        } else if (cy) {
+          cy.elements().removeClass('highlighted dimmed');
+        }
+
+      } catch (err) {
+        console.error("Query execution failed:", err);
+      } finally {
+        btn.disabled = false;
+        btn.innerText = "Run Query";
+      }
+    }
+
+    async function loadBenchmarks() {
+      const tbody = document.getElementById('bench-table-body');
+      try {
+        const resp = await fetch('/api/benchmarks');
+        const data = await resp.json();
+        tbody.innerHTML = data.results.map(r => `
+          <tr class="hover:bg-slate-900/50">
+            <td class="py-2.5 px-3 font-sans font-bold text-slate-200">${r.system_name}</td>
+            <td class="py-2.5 px-2 text-right text-emerald-400">${r.context_recall_pct}%</td>
+            <td class="py-2.5 px-2 text-right text-indigo-400">${r.multihop_recall_pct}%</td>
+            <td class="py-2.5 px-2 text-right text-amber-400">${r.entity_bridge_recall_pct}%</td>
+            <td class="py-2.5 px-2 text-right ${r.ood_rejection_pct === 100 ? 'text-emerald-400' : 'text-rose-400'} font-bold">${r.ood_rejection_pct}%</td>
+            <td class="py-2.5 px-2 text-right text-yellow-400">${r.mean_latency_ms} ms</td>
+          </tr>
+        `).join('');
+      } catch (err) {
+        tbody.innerHTML = `<tr><td colspan="6" class="py-3 text-center text-rose-400">Failed to load benchmark metrics.</td></tr>`;
+      }
+    }
+
+    async function runIngest() {
+      const src = document.getElementById('ingest-source').value.trim();
+      const txt = document.getElementById('ingest-text').value.trim();
+      const dedup = document.getElementById('ingest-dedup').checked;
+
+      const resBox = document.getElementById('ingest-result');
+      resBox.classList.remove('hidden');
+      resBox.innerHTML = 'Ingesting and computing 3-signal resolution...';
+
+      try {
+        const resp = await fetch('/api/ingest', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ doc_source: src, text: txt, enable_deduplication: dedup })
+        });
+        const data = await resp.json();
+        resBox.innerHTML = `
+          <div class="text-emerald-400 font-bold mb-1">Ingestion Complete (${data.elapsed_ms} ms)</div>
+          <div>Chunks Processed: ${data.chunks_processed} | Cache Hits: ${data.cache_hits}</div>
+          <div>Canonical Created: ${data.canonical_entities_created} | Merged: ${data.entities_merged}</div>
+          <div>Edges Created: ${data.edges_created}</div>
+        `;
+        initGraph();
+      } catch (err) {
+        resBox.innerHTML = `<span class="text-rose-400">Ingestion failed: ${err}</span>`;
+      }
+    }
+
+    window.addEventListener('DOMContentLoaded', () => {
+      initGraph();
+    });
+  </script>
+</body>
+</html>
+

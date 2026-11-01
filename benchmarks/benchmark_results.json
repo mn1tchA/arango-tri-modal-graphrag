@@ -1,0 +1,150 @@
+{
+  "evaluation_timestamp": "2026-11-01T15:43:04Z",
+  "dataset_queries_count": 8,
+  "dataset": [
+    {
+      "id": "Q1",
+      "category": "LEXICAL_LOOKUP",
+      "query": "What exact dosage of Fluoxetine Hydrochloride and Tramadol HCl was administered in the emergency ward admission note?",
+      "expected_chunks": [
+        "chunk_doc_1"
+      ],
+      "expected_entities": [
+        "Fluoxetine",
+        "Tramadol"
+      ],
+      "is_ood": false,
+      "is_multihop": false
+    },
+    {
+      "id": "Q2",
+      "category": "LEXICAL_LOOKUP",
+      "query": "What dosage of oral Fluconazole was initiated for systemic candidiasis in the anticoagulant case note?",
+      "expected_chunks": [
+        "chunk_doc_4"
+      ],
+      "expected_entities": [
+        "Fluconazole",
+        "Warfarin"
+      ],
+      "is_ood": false,
+      "is_multihop": false
+    },
+    {
+      "id": "Q3",
+      "category": "RELATIONAL_1HOP",
+      "query": "Which specific hepatic cytochrome P450 enzyme is potently inhibited by Fluconazole?",
+      "expected_chunks": [
+        "chunk_doc_5"
+      ],
+      "expected_entities": [
+        "Fluconazole",
+        "CYP2C9"
+      ],
+      "is_ood": false,
+      "is_multihop": false
+    },
+    {
+      "id": "Q4",
+      "category": "RELATIONAL_1HOP",
+      "query": "Which hepatic enzyme clearance capacity is reduced by over 80% through mechanism-based inhibition by Fluoxetine?",
+      "expected_chunks": [
+        "chunk_doc_2"
+      ],
+      "expected_entities": [
+        "Fluoxetine",
+        "CYP2D6"
+      ],
+      "is_ood": false,
+      "is_multihop": false
+    },
+    {
+      "id": "Q5",
+      "category": "CAUSAL_MULTIHOP",
+      "query": "A patient taking Fluoxetine is prescribed Tramadol. Trace the complete enzymatic interaction mechanism and identify the severe adverse syndrome that results.",
+      "expected_chunks": [
+        "chunk_doc_1",
+        "chunk_doc_2",
+        "chunk_doc_3"
+      ],
+      "expected_entities": [
+        "CYP2D6",
+        "Serotonin Syndrome"
+      ],
+      "is_ood": false,
+      "is_multihop": true
+    },
+    {
+      "id": "Q6",
+      "category": "CAUSAL_MULTIHOP",
+      "query": "What is the complete metabolic mechanism of drug interaction when a patient taking Warfarin is given Fluconazole, and what adverse event results?",
+      "expected_chunks": [
+        "chunk_doc_4",
+        "chunk_doc_5",
+        "chunk_doc_6"
+      ],
+      "expected_entities": [
+        "CYP2C9",
+        "Severe Hemorrhage"
+      ],
+      "is_ood": false,
+      "is_multihop": true
+    },
+    {
+      "id": "Q7",
+      "category": "OUT_OF_DOMAIN",
+      "query": "What is the metabolic interaction between Metformin and Lisinopril in renal failure patients?",
+      "expected_chunks": [],
+      "expected_entities": [],
+      "is_ood": true,
+      "is_multihop": false
+    },
+    {
+      "id": "Q8",
+      "category": "OUT_OF_DOMAIN",
+      "query": "Does concomitant administration of Atorvastatin and Clopidogrel inhibit CYP3A4 hepatic clearance?",
+      "expected_chunks": [],
+      "expected_entities": [],
+      "is_ood": true,
+      "is_multihop": false
+    }
+  ],
+  "results": [
+    {
+      "system_name": "Pure Vector RAG (top_k=2)",
+      "context_recall_pct": 80.0,
+      "multihop_recall_pct": 66.7,
+      "entity_bridge_recall_pct": 91.7,
+      "ood_rejection_pct": 0.0,
+      "mean_latency_ms": 61.67,
+      "p95_latency_ms": 65.18
+    },
+    {
+      "system_name": "Hybrid Search (Vector + BM25 RRF, top_k=2)",
+      "context_recall_pct": 80.0,
+      "multihop_recall_pct": 66.7,
+      "entity_bridge_recall_pct": 100.0,
+      "ood_rejection_pct": 0.0,
+      "mean_latency_ms": 63.02,
+      "p95_latency_ms": 67.59
+    },
+    {
+      "system_name": "Naive GraphRAG (Unresolved Entities)",
+      "context_recall_pct": 80.0,
+      "multihop_recall_pct": 66.7,
+      "entity_bridge_recall_pct": 91.7,
+      "ood_rejection_pct": 0.0,
+      "mean_latency_ms": 116.97,
+      "p95_latency_ms": 120.48
+    },
+    {
+      "system_name": "Adaptive CRAG Tri-Modal GraphRAG",
+      "context_recall_pct": 100.0,
+      "multihop_recall_pct": 100.0,
+      "entity_bridge_recall_pct": 100.0,
+      "ood_rejection_pct": 100.0,
+      "mean_latency_ms": 84.27,
+      "p95_latency_ms": 128.73
+    }
+  ]
+}
