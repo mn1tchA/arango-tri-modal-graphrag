@@ -134,11 +134,13 @@ flowchart TD
 ## 4. Algorithmic Foundations
 
 ### In-Engine Reciprocal Rank Fusion (RRF)
+
 Cosine similarity scores ($\in [-1, 1]$) and unbounded BM25 lexical scores ($\in [0, \infty)$) cannot be linearly combined without brittle min-max calibration. Our retrieval engine computes **Reciprocal Rank Fusion** directly inside AQL using ordinal rank positions:
 
 $$\text{RRF\_Score}(d) = \sum_{m \in \{\text{vec}, \text{bm25}\}} \frac{1}{k + \text{rank}_m(d)}$$
 
-where $k = 60$ dampens the impact of high-variance outliers in individual modalities.
+Where:
+- $k = 60$ dampens the impact of high-variance outliers in individual modalities.
 
 ```sql
 // Single-Query AQL Tri-Modal Retrieval (Vector + BM25 + k-Hop Graph Expansion)
