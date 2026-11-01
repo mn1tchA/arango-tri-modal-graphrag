@@ -28,6 +28,14 @@ def get_db():
     global _db
     if _db is None:
         _db = init_database()
+    # Guarantee auto-seeding if database has 0 chunks (e.g. fresh container in CI)
+    try:
+        chunks_col = _db.collection("chunks")
+        if chunks_col.count() == 0:
+            pipeline = GraphIngestionPipeline(_db)
+            pipeline.ingest_documents(MULTI_HOP_CORPUS_6_DOCS, enable_deduplication=True)
+    except Exception:
+        pass
     return _db
 
 
@@ -54,20 +62,13 @@ def get_pipeline():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # 1. Warm up database schema
+    # 1. Warm up database schema and seed if empty
     db = get_db()
 
-    # 2. Seed benchmark graph if empty
-    chunks_col = db.collection("chunks")
-    entities_col = db.collection("entities")
-    if chunks_col.count() == 0 or entities_col.count() == 0:
-        pipeline = get_pipeline()
-        pipeline.ingest_documents(MULTI_HOP_CORPUS_6_DOCS, enable_deduplication=True)
-
-    # 3. Warm up sentence-transformer embeddings in memory
+    # 2. Warm up sentence-transformer embeddings in memory
     _ = embed_text("warmup query embedding initialization")
 
-    # 4. Pre-initialize retriever and agent singletons
+    # 3. Pre-initialize retriever and agent singletons
     _ = get_retriever()
     _ = get_agent()
 

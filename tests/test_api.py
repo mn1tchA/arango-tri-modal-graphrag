@@ -15,8 +15,18 @@ if str(root_dir) not in sys.path:
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
 
+import pytest
 from fastapi.testclient import TestClient
-from src.api.app import app
+from src.api.app import app, get_db
+
+
+@pytest.fixture(scope="module", autouse=True)
+def setup_test_database():
+    """Ensure database schema is initialized and seeded before running API tests."""
+    with TestClient(app) as test_client:
+        _ = get_db()
+        yield test_client
+
 
 client = TestClient(app)
 
@@ -154,6 +164,7 @@ def test_ui_html_endpoint():
 
 if __name__ == "__main__":
     print("Running automated FastAPI tests directly...")
+    _ = get_db()
     test_health_endpoint()
     test_graph_endpoint()
     test_query_causal_multihop()

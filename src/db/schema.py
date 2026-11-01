@@ -44,12 +44,12 @@ def init_database(host: str = "http://localhost:8529") -> StandardDatabase:
     chunks_col = db.collection("chunks")
     chunk_index_fields = [idx.get("fields") for idx in chunks_col.indexes()]
     if ["content_hash"] not in chunk_index_fields:
-        chunks_col.add_persistent_index(fields=["content_hash"], unique=True)
+        chunks_col.add_index({"type": "persistent", "fields": ["content_hash"], "unique": True})
 
     entities_col = db.collection("entities")
     entity_index_fields = [idx.get("fields") for idx in entities_col.indexes()]
     if ["canonical_name", "entity_type"] not in entity_index_fields:
-        entities_col.add_persistent_index(fields=["canonical_name", "entity_type"], unique=False)
+        entities_col.add_index({"type": "persistent", "fields": ["canonical_name", "entity_type"], "unique": False})
 
     # 5. Create or Update ArangoSearch View for BM25 Full-Text Search
     existing_views = [v["name"] for v in db.views()]
