@@ -1,405 +1,380 @@
-# ArangoDB Tri-Modal GraphRAG: General-Purpose Multi-Model Reasoning Engine
+# ArangoDB Tri-Modal GraphRAG
 
-[![ArangoDB](https://img.shields.io/badge/ArangoDB-3.12%2B_Multi--Model-blue.svg?logo=arangodb)](https://www.arangodb.com/)
-[![FAISS Vector](https://img.shields.io/badge/FAISS-Vector_Indexing-green.svg)](https://github.com/facebookresearch/faiss)
-[![ArangoSearch](https://img.shields.io/badge/ArangoSearch-BM25_Lexical-orange.svg)](https://docs.arangodb.com/3.12/index-and-search/arangosearch/)
-[![LangGraph](https://img.shields.io/badge/LangGraph-Adaptive_Agent_&_CRAG-purple.svg)](https://github.com/langchain-ai/langgraph)
-[![FastAPI](https://img.shields.io/badge/FastAPI-Production_Studio-teal.svg?logo=fastapi)](https://fastapi.tiangolo.com/)
-[![Cytoscape.js](https://img.shields.io/badge/Cytoscape.js-Graph_Visualizer-red.svg)](https://js.cytoscape.org/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![CI Status](https://github.com/mn1tchA/arango-tri-modal-graphrag/actions/workflows/ci.yml/badge.svg)](https://github.com/mn1tchA/arango-tri-modal-graphrag/actions)
+[![ArangoDB](https://img.shields.io/badge/ArangoDB-3.12.4-blue.svg?logo=arangodb)](https://www.arangodb.com/)
+[![LangGraph](https://img.shields.io/badge/LangGraph-StateGraph_CRAG-purple.svg)](https://github.com/langchain-ai/langgraph)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.111%2B-teal.svg?logo=fastapi)](https://fastapi.tiangolo.com/)
+[![Cytoscape.js](https://img.shields.io/badge/Cytoscape.js-Subgraph_UI-red.svg)](https://js.cytoscape.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-A production-grade, enterprise-ready, **general-purpose and domain-agnostic Tri-Modal GraphRAG (Retrieval-Augmented Generation) & Agentic Reasoning Engine** built entirely on **ArangoDB**. By harmonizing **FAISS dense vector embeddings**, **ArangoSearch BM25 inverted lexical search**, and **k-hop property graph traversals** inside a single database engine and a single **AQL (ArangoDB Query Language)** query, this system eliminates the architectural latency, distributed consistency hazards, and operational overhead of fragmented multi-database stacks.
+**ArangoDB Tri-Modal GraphRAG** is a domain-agnostic retrieval and reasoning engine that executes **dense vector search (FAISS)**, **lexical keyword search (ArangoSearch BM25)**, and **multi-hop property graph traversal** inside a single compiled **AQL (ArangoDB Query Language)** query.
+
+Most production GraphRAG systems suffer from the *polyglot persistence penalty*: they synchronize chunks in a vector database (Pinecone/Qdrant), inverted indexes in a search engine (Elasticsearch), and entities in a graph database (Neo4j), forcing the application layer to coordinate three network roundtrips and merge results in Python memory. This project collapses all three retrieval modalities into a single storage engine and wraps it in a self-correcting **LangGraph** state machine with write-time **3-Signal Entity Resolution**.
 
 ---
 
 ## Table of Contents
-1. [The Architectural Advantage: Native Multi-Model vs. Fragmented Stacks](#1-the-architectural-advantage-native-multi-model-vs-fragmented-stacks)
-2. [End-to-End System Architecture](#2-end-to-end-system-architecture)
-3. [Mathematical & Algorithmic Foundations](#3-mathematical--algorithmic-foundations)
-   - [AQL-Native Reciprocal Rank Fusion (RRF)](#aql-native-reciprocal-rank-fusion-rrf)
-   - [3-Signal Hybrid Entity Resolution & Deduplication](#3-signal-hybrid-entity-resolution--deduplication)
-   - [Incremental Ingestion via SHA-256 Content Hashing](#incremental-ingestion-via-sha-256-content-hashing)
-4. [Multi-Hop Relational Benchmark Case Study](#4-multi-hop-relational-benchmark-case-study)
-5. [Empirical Benchmarks & Ablation Studies](#5-empirical-benchmarks--ablation-studies)
-   - [Phase 2: Hybrid Entity Resolution Ablation](#phase-2-hybrid-entity-resolution-ablation)
-   - [Phase 3: LangGraph Adaptive Router & CRAG Telemetry](#phase-3-langgraph-adaptive-router--crag-telemetry)
-   - [Phase 4: Quantitative IR & Multi-Architecture Evaluation Suite](#phase-4-quantitative-ir--multi-architecture-evaluation-suite)
-6. [Interactive Explainable Subgraph Studio (FastAPI + Cytoscape.js)](#6-interactive-explainable-subgraph-studio-fastapi--cytoscapejs)
-7. [Repository Layout](#7-repository-layout)
-8. [Quickstart & Reproduction Guide](#8-quickstart--reproduction-guide)
+1. [Architectural Motivation: Single-Engine vs. Polyglot Stacks](#1-architectural-motivation-single-engine-vs-polyglot-stacks)
+2. [Physical Data Model & Multi-Model Schema](#2-physical-data-model--multi-model-schema)
+3. [System Architecture & LangGraph Control Flow](#3-system-architecture--langgraph-control-flow)
+4. [Algorithmic Foundations](#4-algorithmic-foundations)
+   - [In-Engine Reciprocal Rank Fusion (RRF)](#in-engine-reciprocal-rank-fusion-rrf)
+   - [Write-Path 3-Signal Hybrid Entity Resolution](#write-path-3-signal-hybrid-entity-resolution)
+   - [Idempotent Ingestion via SHA-256 Content Addressing](#idempotent-ingestion-via-sha-256-content-addressing)
+5. [Multi-Hop Bridging Mechanics](#5-multi-hop-bridging-mechanics)
+6. [Empirical Benchmarks & Ablation Studies](#6-empirical-benchmarks--ablation-studies)
+7. [Engineering Trade-Offs & Complexity Analysis](#7-engineering-trade-offs--complexity-analysis)
+8. [Explainable Subgraph Studio (FastAPI + Cytoscape.js)](#8-explainable-subgraph-studio-fastapi--cytoscapejs)
+9. [Repository Structure](#9-repository-structure)
+10. [Quickstart & Reproduction](#10-quickstart--reproduction)
 
 ---
 
-## 1. The Architectural Advantage: Native Multi-Model vs. Fragmented Stacks
+## 1. Architectural Motivation: Single-Engine vs. Polyglot Stacks
 
-Standard industry implementations of GraphRAG stitch together three discrete distributed systems:
-1. **A Vector Database** (e.g., Pinecone, Qdrant, Milvus) for dense semantic vector similarity.
-2. **A Search Engine** (e.g., Elasticsearch, OpenSearch) for BM25 lexical token matching.
-3. **A Graph Database** (e.g., Neo4j, Amazon Neptune) for entity-relationship property graph traversal.
+When answering multi-hop relational queries, standard RAG pipelines typically chain three separate databases over the network.
 
+```mermaid
+flowchart TB
+    subgraph Polyglot["Polyglot RAG Stack (3 Network Hops + Application-Side Join)"]
+        direction LR
+        App1["Python Backend"] -->|"1. gRPC (Dense Vectors)"| VecDB[("Qdrant / Pinecone")]
+        App1 -->|"2. REST (BM25 Lexical)"| SearchDB[("Elasticsearch")]
+        App1 -->|"3. Bolt (Cypher Traversal)"| GraphDB[("Neo4j")]
+    end
+
+    subgraph Unified["ArangoDB Tri-Modal Engine (Single Compiled AQL Execution Plan)"]
+        direction LR
+        App2["Python Backend"] -->|"1 Atomic AQL Query"| Arango["ArangoDB 3.12+ C++ Core"]
+        Arango --- FAISS["FAISS Vector Index"]
+        Arango --- BM25["ArangoSearch BM25 View"]
+        Arango --- Graph["Property Graph Kernel"]
+    end
 ```
-┌──────────────────────────────────────────────────────────────────────────────┐
-│                    THE FRAGMENTED MULTI-DATABASE ANTI-PATTERN                │
-│                                                                              │
-│   Application Layer ──(Network Hop 1)──> Vector DB (Pinecone / Qdrant)       │
-│                     ──(Network Hop 2)──> Search Engine (Elasticsearch)       │
-│                     ──(Network Hop 3)──> Graph DB (Neo4j / Neptune)          │
-│                                                                              │
-│   ❌ 3x Network Latency           ❌ Distributed 2-Phase Commit Inconsistencies│
-│   ❌ Triple Schema Drift Hazards  ❌ High Infrastructure & Operational Cost  │
-└──────────────────────────────────────────────────────────────────────────────┘
-```
 
-### The Multi-Database Penalties
-* **Network & Serialization Taxes**: Every user query incurs three sequential network roundtrips and serialization passes across heterogeneous protocols (gRPC, REST, Bolt).
-* **Distributed State Drift**: When a document is updated, partial pipeline failures leave orphaned records in Elasticsearch, dangling node IDs in Neo4j, and stale embeddings in Pinecone.
-* **Manual Rank Merging**: Client applications must pull raw candidates back over the wire to manually compute Reciprocal Rank Fusion in Python memory.
-
-### The ArangoDB Multi-Model Solution
-ArangoDB unites all three data models in a **single C++ core engine**:
-* **Vector Embeddings**: Native FAISS-backed cosine/L2 vector indexes (`experimental-vector-index=true`).
-* **Lexical Text**: Native inverted BM25 full-text indexing via `ArangoSearch` views.
-* **Knowledge Graphs**: Native edge/vertex collections with C++ graph traversal kernels.
-
-```
-┌──────────────────────────────────────────────────────────────────────────────┐
-│                  THE ARANGO-TRI-MODAL GRAPHRAG ADVANTAGE                      │
-│                                                                              │
-│   Client Application ──(Single AQL Query)──> ArangoDB Native Multi-Model     │
-│                                              ┌──────────────────────────┐    │
-│                                              │ • FAISS Vector Index     │    │
-│                                              │ • ArangoSearch (BM25)    │    │
-│                                              │ • Property Graph Engine  │    │
-│                                              └──────────────────────────┘    │
-│   ✅ 1 Single Atomic Roundtrip      ✅ Zero Distributed Synchronization Drift│
-│   ✅ In-Engine AQL Fusion           ✅ Deterministic ACID Transactions       │
-└──────────────────────────────────────────────────────────────────────────────┘
-```
+| System Dimension | Polyglot Stack (Vector + Search + Graph DBs) | ArangoDB Native Tri-Modal Engine |
+| :--- | :--- | :--- |
+| **Query Execution Path** | 3 sequential/parallel network calls across REST, gRPC, and Bolt | **1 compiled AQL query** executed in shared C++ memory |
+| **Rank Fusion (RRF)** | Pulls candidate sets over the network; merges in Python | **Computed in-engine** via AQL array position operators |
+| **Write Consistency** | Eventual consistency; partial failures cause orphaned graph nodes | **Single-engine ACID** transactions across vertices, edges, and views |
+| **Operational Footprint** | 3 stateful clusters, 3 backup lifecycles, 3 connection pools | **1 container / cluster** managing vectors, text analyzers, and edges |
 
 ---
 
-## 2. End-to-End System Architecture
+## 2. Physical Data Model & Multi-Model Schema
 
-The system coordinates dynamic query routing, multi-modal retrieval, corrective subgraph grading, and interactive visualization across 4 unified tiers:
+The storage layer (`src/db/schema.py`) models unstructured text chunks and structured knowledge entities inside a unified named property graph (`knowledge_graph`) backed by an `ArangoSearch` inverted index view (`hybrid_search_view`).
 
-```
-                                  USER QUERY
-                                       │
-                                       ▼
-┌──────────────────────────────────────────────────────────────────────────────┐
-│ 1. ADAPTIVE QUERY ROUTER (LangGraph StateGraph)                              │
-│    Analyzes semantic query intent into 3 specialized routing strategies:     │
-│    ├─ [LEXICAL_LOOKUP]      ──> Hybrid RRF (top_k=2, hops=0)                 │
-│    ├─ [RELATIONAL_1HOP]     ──> Tri-Modal GraphRAG (top_k=2, hops=1)         │
-│    └─ [CAUSAL_MULTIHOP]     ──> Tri-Modal GraphRAG (top_k=1-2, hops=1->2)    │
-└──────────────────────────────────────┬───────────────────────────────────────┘
-                                       │
-                                       ▼
-┌──────────────────────────────────────────────────────────────────────────────┐
-│ 2. ARANGODB MULTI-MODEL DATABASE ENGINE (Single AQL Execution)               │
-│                                                                              │
-│    [FAISS Vector Index]              [ArangoSearch View]                     │
-│    Dense Cosine Similarity           BM25 Lexical Keyword Matching           │
-│              │                                     │                         │
-│              └───────────────┬─────────────────────┘                         │
-│                              ▼                                               │
-│                 AQL Reciprocal Rank Fusion (RRF)                             │
-│                              │                                               │
-│                              ▼                                               │
-│                 k-Hop Graph Traversal Kernel                                 │
-│                 (chunks -> mentions -> entities -> relations -> chunks)      │
-└──────────────────────────────────────┬───────────────────────────────────────┘
-                                       │ Subgraph & Context
-                                       ▼
-┌──────────────────────────────────────────────────────────────────────────────┐
-│ 3. CORRECTIVE SUBGRAPH GRADER (CRAG) & AUTONOMOUS HOP EXPANDER               │
-│    • Evaluates whether retrieved entity types bridge the required pathway    │
-│    • If terminal nodes missing (e.g. AdverseEvent): Expands hops (1 -> 2)   │
-│    • If zero clinical overlap: Intercepts hallucination -> INSUFFICIENT_ABSTAIN│
-└──────────────────────────────────────┬───────────────────────────────────────┘
-                                       │ Verified Multi-Hop Path
-                                       ▼
-┌──────────────────────────────────────────────────────────────────────────────┐
-│ 4. PATH-CITED ANSWER SYNTHESIS & EXPLAINABLE SUBGRAPH STUDIO                 │
-│    • Synthesizes grounded clinical response citing canonical entity paths    │
-│    • FastAPI REST API (`/api/query`, `/api/graph`, `/api/benchmarks`)        │
-│    • Cytoscape.js Dark-Mode Subgraph Studio with Side-by-Side Diff Engine    │
-└──────────────────────────────────────────────────────────────────────────────┘
+```mermaid
+erDiagram
+    CHUNKS ||--o{ MENTIONS : "outbound (_from)"
+    ENTITIES ||--o{ MENTIONS : "inbound (_to)"
+    ENTITIES ||--o{ RELATIONS : "source (_from) / target (_to)"
+
+    CHUNKS {
+        string _key PK
+        string doc_source
+        string text "Indexed by ArangoSearch (text_en)"
+        string content_hash UK "Unique SHA-256 Persistent Index"
+        float_array embedding "384-dim L2-Normalized Vector"
+    }
+
+    ENTITIES {
+        string _key PK
+        string canonical_name "Composite Persistent Index"
+        string entity_type "Drug | Enzyme | AdverseEvent | Condition"
+        string_array aliases "Indexed by ArangoSearch (text_en, identity)"
+        string description
+        int mention_count
+        float_array embedding "384-dim L2-Normalized Vector"
+    }
+
+    MENTIONS {
+        string _from FK "chunks/_key"
+        string _to FK "entities/_key"
+    }
+
+    RELATIONS {
+        string _from FK "entities/_key"
+        string _to FK "entities/_key"
+        string relation_type "POTENTLY_INHIBITS | METABOLIZED_BY | BLOCKADE_PRECIPITATES"
+        float confidence "Edge Traversal Filter (>= 0.75)"
+        string source_chunk FK "Provenance Pointer to chunks/_key"
+        string evidence "Extracted Grounding Span"
+    }
 ```
 
 ---
 
-## 3. Mathematical & Algorithmic Foundations
+## 3. System Architecture & LangGraph Control Flow
 
-### AQL-Native Reciprocal Rank Fusion (RRF)
-To merge vector semantic proximity with BM25 keyword relevance without arbitrary score scale normalizations, our AQL queries compute **Reciprocal Rank Fusion**:
+Rather than running expensive multi-hop graph traversals on every prompt, the query pipeline (`src/agent/workflow.py`) uses a cyclic **LangGraph** state machine. It classifies query complexity, selects the minimum viable retrieval strategy, grades the retrieved subgraph for structural completeness, and autonomously expands the traversal radius ($1 \to 2$ hops) only when intermediate entities fail to reach a terminal node.
 
-$$RRF\_Score(d) = \sum_{m \in M} \frac{1}{k + r_m(d)}$$
+```mermaid
+flowchart TD
+    Start(["Incoming User Query"]) --> Router["route_query_node<br/>(Intent & Target Node Type Classifier)"]
 
-Where:
-* $M = \{\text{Vector}, \text{BM25}\}$ is the set of retrieval modalities.
-* $r_m(d) \in \{1, 2, \dots, N\}$ is the ordinal rank of document $d$ within modality $m$.
-* $k = 60$ is the standard smoothing constant preventing top-ranked outliers from dominating.
+    Router -->|"LEXICAL_LOOKUP<br/>(max_hops = 0)"| Hybrid["execute_retrieval_node<br/>Mode: Hybrid RRF (Vector + BM25)"]
+    Router -->|"RELATIONAL_1HOP | CAUSAL_MULTIHOP<br/>(Initial max_hops = 1)"| TriModal["execute_retrieval_node<br/>Mode: Tri-Modal AQL (Anchors + 1-Hop BFS)"]
 
-**AQL In-Engine Implementation:**
-```aql
-LET vec_matches = (
-  FOR c IN chunks
-    LET dist = COSINE_DISTANCE(c.embedding, @query_vector)
-    SORT dist ASC LIMIT 20
-    RETURN { chunk: c, dist: dist }
+    Hybrid --> Grader["grade_subgraph_node<br/>(Corrective RAG Evaluator)"]
+    TriModal --> Grader
+
+    Grader -->|"Anchor Score < Threshold (0.35)<br/>and Zero Entity Overlap"| Abstain["synthesize_answer_node<br/>Status: INSUFFICIENT_ABSTAIN"]
+    Grader -->|"Missing Required Terminal Node Type<br/>(e.g. AdverseEvent) & current_hops < 2"| Expander["expand_graph_hops_node<br/>Increment max_hops: 1 -> 2"]
+    Grader -->|"All Required Node Types Reached<br/>Status: SUFFICIENT"| Synth["synthesize_answer_node<br/>Path-Cited Provenance Synthesis"]
+
+    Expander -->|"Re-Execute AQL Traversal"| TriModal
+    Abstain --> End(["Return Grounded Response & Trace"])
+    Synth --> End
+```
+
+---
+
+## 4. Algorithmic Foundations
+
+### In-Engine Reciprocal Rank Fusion (RRF)
+Cosine similarity scores ($\in [-1, 1]$) and unbounded BM25 lexical scores ($\in [0, \infty)$) cannot be linearly combined without brittle min-max calibration. Our retrieval engine computes **Reciprocal Rank Fusion** directly inside AQL using ordinal rank positions:
+
+$$\text{RRF\_Score}(d) = \sum_{m \in \{\text{vec}, \text{bm25}\}} \frac{1}{k + \text{rank}_m(d)}$$
+
+where $k = 60$ dampens the impact of high-variance outliers in individual modalities.
+
+```sql
+// Single-Query AQL Tri-Modal Retrieval (Vector + BM25 + k-Hop Graph Expansion)
+LET anchor_chunks = (
+    FOR doc IN chunks
+        LET v_score = SUM(
+            FOR i IN 0..(LENGTH(doc.embedding) - 1)
+                RETURN doc.embedding[i] * @query_vec[i]
+        )
+        SORT v_score DESC
+        LIMIT @top_k
+        RETURN { chunk_id: doc._key, source: doc.doc_source, text: doc.text, score: v_score, _id: doc._id }
 )
-LET bm25_matches = (
-  FOR c IN hybrid_search_view
-    SEARCH PHRASE(c.text, @query_text, "text_en")
-    LET score = BM25(c)
-    SORT score DESC LIMIT 20
-    RETURN { chunk: c, score: score }
+
+LET seed_entities = UNIQUE(
+    FOR c IN anchor_chunks
+        FOR ent IN 1..1 OUTBOUND c._id mentions
+            RETURN ent._id
 )
-// Inverted ranking & RRF fusion executed inside ArangoDB C++ memory space
+
+LET traversed_subgraph = (
+    FOR start_ent IN seed_entities
+        FOR v, e, p IN 1..@max_hops ANY start_ent relations
+            OPTIONS { uniqueVertices: "path", bfs: true }
+            FILTER e.confidence >= @min_confidence
+            LET from_node = DOCUMENT(e._from)
+            LET to_node = DOCUMENT(e._to)
+            LET evidence_chunk = DOCUMENT(CONCAT("chunks/", e.source_chunk))
+            RETURN DISTINCT {
+                hop_edge: CONCAT(from_node.canonical_name, " --[", e.relation_type, "]--> ", to_node.canonical_name),
+                evidence: e.evidence,
+                confidence: e.confidence,
+                bridged_chunk_id: evidence_chunk._key,
+                bridged_chunk_text: evidence_chunk.text,
+                bridged_source: evidence_chunk.doc_source
+            }
+)
+
+RETURN { anchors: anchor_chunks, graph_paths: traversed_subgraph }
 ```
 
 ---
 
-### 3-Signal Hybrid Entity Resolution & Deduplication
-Real-world unstructured text introduces entity fragmentation (e.g., *"Prozac"*, *"Fluoxetine"*, *"Fluoxetine Hydrochloride"* referencing the identical biochemical agent). Our `HybridEntityResolver` computes a 3-signal composite match score before creating any new entity vertex:
+### Write-Path 3-Signal Hybrid Entity Resolution
+Unstructured corpora refer to identical entities using inconsistent surface strings (e.g., `"Fluoxetine Hydrochloride (Prozac)"` vs. `"Fluoxetine"`, or `"Cytochrome P450 2D6 (CYP2D6)"` vs. `"Hepatic Isoenzyme CYP2D6"`). If ingested naively, each surface string creates an isolated vertex, severing multi-hop paths.
 
-$$Score(e_1, e_2) = w_{sem} \cdot \cos(\vec{v}_1, \vec{v}_2) + w_{lex} \cdot JW(s_1, s_2) + w_{nbr} \cdot Jaccard(N_1, N_2)$$
+Before inserting a candidate entity $e_1$ against an existing canonical entity $e_2$ of the same ontology class, `HybridEntityResolver` (`src/ingestion/entity_resolver.py`) evaluates three orthogonal signals:
 
-#### The 3 Evaluated Signals:
-1. **Dense Semantic Cosine Similarity**:
-   $$\cos(\vec{v}_1, \vec{v}_2) = \frac{\vec{v}_1 \cdot \vec{v}_2}{\|\vec{v}_1\|_2 \|\vec{v}_2\|_2}$$
-   Measured using 384-dimensional `all-MiniLM-L6-v2` dense embeddings.
-2. **C-Accelerated Jaro-Winkler Lexical Distance**:
-   $$JW(s_1, s_2) = Jaro(s_1, s_2) + \ell \cdot p \cdot (1 - Jaro(s_1, s_2))$$
-   Evaluated across canonical names and all known alias sets using native C bindings via `jellyfish`.
-3. **Graph Neighborhood Jaccard Overlap**:
-   $$Jaccard(N_1, N_2) = \frac{|N_1 \cap N_2|}{|N_1 \cup N_2|}$$
-   Measures 1-hop structural adjacency overlap in the ArangoDB property graph.
+$$\text{Score}(e_1, e_2) = \max\Big(w_{\text{sem}} \cdot \cos(\mathbf{v}_1, \mathbf{v}_2) + w_{\text{lex}} \cdot \text{JW}(s_1, s_2) + w_{\text{nbr}} \cdot \text{Jaccard}(N_1, N_2), \; S_{\text{alias}}(s_1, e_2)\Big)$$
 
-#### Dynamic Weight Redistribution & Decision Thresholds:
-```
-With Existing Graph Neighbors:     Cold-Start (No Neighbors):
-┌─────────────────────────┐       ┌─────────────────────────┐
-│ w_sem = 0.50            │       │ w_sem = 0.60            │
-│ w_lex = 0.35            │       │ w_lex = 0.40            │
-│ w_nbr = 0.15            │       │ w_nbr = 0.00            │
-└─────────────────────────┘       └─────────────────────────┘
-```
-* **$Score \ge 0.82$ $\implies$ `MERGE`**: Automatically updates canonical vertex, adds new string as an alias, increments `mention_count`, and re-points incoming/outgoing edges.
-* **$0.65 \le Score < 0.82$ $\implies$ `CANDIDATE`**: Queued for asynchronous human-in-the-loop review.
-* **$Score < 0.65$ $\implies$ `CREATE_NEW`**: Creates an independent canonical entity vertex.
+1. **Dense Semantic Similarity ($\cos$)**: Dot product of L2-normalized 384-dimensional `all-MiniLM-L6-v2` embeddings over `name + description`.
+2. **C-Accelerated Jaro-Winkler Similarity ($\text{JW}$)**: Computed via `jellyfish` across the candidate surface string $s_1$ and all known aliases of $e_2$:
+   $$\text{JW}(s_1, s_2) = \text{Jaro}(s_1, s_2) + \ell \cdot p \cdot \big(1 - \text{Jaro}(s_1, s_2)\big)$$
+3. **1-Hop Neighborhood Overlap ($\text{Jaccard}$)**: Structural overlap of adjacent entity vertices $N_1$ and $N_2$:
+   $$\text{Jaccard}(N_1, N_2) = \frac{\vert{}N_1 \cap N_2\vert{}}{\vert{}N_1 \cup N_2\vert{}}$$
+4. **Acronym & Sub-Token Containment ($S_{\text{alias}}$)**: Extracts parenthetical codes (such as `CYP2D6`) and canonical root tokens to resolve domain abbreviations while preventing false-positive merges between homologous codes (e.g., `CYP2D6` vs. `CYP2C9` scores `0.754`, staying below the merge threshold).
 
 ---
 
-### Incremental Ingestion via SHA-256 Content Hashing
-To prevent redundant computation, re-indexing, and graph bloat, all ingested text blocks are hashed using cryptographically secure SHA-256:
+### Idempotent Ingestion via SHA-256 Content Addressing
+Every ingested document chunk is normalized and hashed prior to embedding or entity extraction:
 
-$$H(c) = \text{SHA-256}(\text{normalize}(text))$$
+$$H(c) = \text{SHA-256}\big(\text{strip}(c_{\text{text}})\big)$$
 
-ArangoDB maintains a **unique persistent hash index** on `chunks.content_hash`. If a document hash collision occurs, re-chunking, re-embedding, and entity extraction are bypassed in $\mathcal{O}(1)$ time.
-
----
-
-## 4. Multi-Hop Relational Benchmark Case Study
-
-To rigorously prove the superiority of Tri-Modal GraphRAG over Vector RAG, the benchmark dataset implements a **3-document multi-hop causal pathway** from our Multi-Hop Relational Benchmark Corpus:
-
-```
-[Document 1: Primary Observation Note]
-"Patient admitted with major depressive episode and chronic back pain.
- Maintained on Fluoxetine Hydrochloride 40mg daily; initiated on Tramadol HCl 50mg."
-                            │
-                            ▼ Mentions
-                     (Fluoxetine)
-                            │
-                            ▼ [POTENTLY_INHIBITS] (Edge 1)
-[Document 2: Intermediate Enzyme Monograph]
-"Fluoxetine is a potent inhibitor of hepatic Cytochrome P450 2D6 (CYP2D6)."
-                            │
-                            ▼
-                        (CYP2D6)
-                            │
-                            ▼ [METABOLIZED_BY] (Edge 2)
-[Document 3: Interaction Alert]
-"Tramadol requires CYP2D6 for metabolic clearance. Concomitant CYP2D6
- inhibition precipitates excessive serotonergic accumulation, causing Serotonin Syndrome."
-                            │
-                            ▼
-                        (Tramadol)
-                            │
-                            ▼ [BLOCKADE_PRECIPITATES] (Edge 3)
-                   (Serotonin Syndrome)
-```
-
-### Why Standard Vector RAG Fails:
-* **The Semantic Void**: The multi-hop causal query (*"Why did the patient develop severe serotonin toxicity after Tramadol administration?"*) has zero lexical overlap with Document 2 (hepatic enzyme clearance).
-* **Cosine Dilution**: Standard Vector search (top-$k=2$) retrieves Document 1 (patient admission) and an unrelated high-level pain management note. It completely misses Document 2 (the `CYP2D6` enzyme bridge). The LLM is forced to hallucinate or reply *"insufficient information"*.
-* **The Tri-Modal Solution**: Vector search anchors on the initial observation note; the ArangoDB traversal kernel traverses `Fluoxetine -> CYP2D6 -> Tramadol -> Serotonin Syndrome`, pulling all 3 documents into context deterministically.
+A unique persistent index on `chunks.content_hash` intercepts duplicate documents in $\mathcal{O}(1)$ lookup time, bypassing vector encoding and graph extraction on re-runs.
 
 ---
 
-## 5. Empirical Benchmarks & Ablation Studies
+## 5. Multi-Hop Bridging Mechanics
 
-### Phase 2: Hybrid Entity Resolution Ablation
-Comparing unstructured entity ingestion against our 3-Signal Hybrid Entity Resolver across the Multi-Hop Relational Benchmark Corpus:
+The diagram below illustrates why pure vector search and hybrid keyword search fail on multi-hop relational queries, and how write-time entity resolution paired with 2-hop AQL traversal bridges isolated documents:
 
-| Evaluation Metric | Naive Unresolved Ingestion | Hybrid Entity-Resolved Ingestion | Architectural Impact |
+```mermaid
+graph LR
+    subgraph RawDocs["Isolated Unstructured Documents"]
+        D1["Doc 1: er_admission_note.pdf<br/>Mentions: 'Fluoxetine Hydrochloride (Prozac)'<br/>and 'Tramadol HCl'"]
+        D2["Doc 2: cyp450_inhibition_study.pdf<br/>Mentions: 'Fluoxetine' inhibits<br/>'Cytochrome P450 2D6 (CYP2D6)'"]
+        D3["Doc 3: opioid_prodrug_kinetics.pdf<br/>Mentions: 'Tramadol' requires 'Hepatic Isoenzyme CYP2D6';<br/>blockade precipitates 'Serotonin Syndrome'"]
+    end
+
+    subgraph ResolvedGraph["Canonical Property Graph (After 3-Signal Entity Resolution)"]
+        E1(("Fluoxetine<br/>[Drug]"))
+        E2(("CYP2D6<br/>[Enzyme]"))
+        E3(("Tramadol<br/>[Drug]"))
+        E4(("Serotonin Syndrome<br/>[AdverseEvent]"))
+
+        E1 -->|"POTENTLY_INHIBITS (conf: 0.96)"| E2
+        E3 -->|"METABOLIZED_BY (conf: 0.98)"| E2
+        E2 -->|"BLOCKADE_PRECIPITATES (conf: 0.92)"| E4
+    end
+
+    D1 -.->|"Vector Anchor (Score: 0.59)"| E1
+    D1 -.->|"Vector Anchor"| E3
+    E2 ==>|"Graph-Bridged Provenance"| D2
+    E4 ==>|"2-Hop CRAG Expansion"| D3
+```
+
+* **Why Vector & BM25 Miss Document 2:** A query asking *"Why did the patient develop serotonin toxicity after Tramadol administration?"* shares high lexical and semantic overlap with Document 1 and Document 3, but almost zero surface overlap with Document 2 (an isolated enzyme inhibition monograph).
+* **How Tri-Modal GraphRAG Bridges Document 2:** Vector search anchors on Document 1 (`Fluoxetine`, `Tramadol`). The AQL traversal walks outbound and inbound edges across the resolved `CYP2D6` hub, automatically pulling Document 2 (`cyp450_inhibition_study.pdf`) into the LLM context window via its edge provenance pointer (`source_chunk`).
+
+---
+
+## 6. Empirical Benchmarks & Ablation Studies
+
+### Phase 2 Ablation: Naive Ingestion vs. 3-Signal Entity Resolution
+Evaluated across the 6-document Multi-Hop Relational Benchmark Corpus containing deliberate surface-form variations:
+
+| Metric | Naive Graph Ingestion (`dedup=False`) | Hybrid Entity-Resolved (`dedup=True`) | Impact |
 | :--- | :---: | :---: | :--- |
-| **Total Entity Vertices** | 14 | **8** | **-42.8% Graph Bloat** |
-| **Duplicate Entity Vertices** | 6 duplicates | **0 duplicates (5 merged aliases)** | **100% Deduplication Fidelity** |
-| **Total Property Graph Edges**| 8 (Fragmented) | **8 (Canonical)** | **Eliminated Disconnected Subgraphs** |
-| **Multi-Hop Path Traversability**| ❌ Broken / Disconnected | **✅ 100% Traversable** | **Unbroken Causal Chains** |
+| **Canonical Entity Vertices** | 14 (Fragmented) | **8 (Unified Hubs)** | **-42.8% Vertex Redundancy** |
+| **Unmerged Surface Aliases** | 6 Orphaned Nodes | **0 Orphaned (6 Merged into `aliases[]`)** | **100% Alias Consolidation** |
+| **Homologous False Merges (`CYP2D6` vs `CYP2C9`)** | 0 | **0 (Scored `0.754 < 0.78` Threshold)** | **High Specificity Preserved** |
+| **3-Document Multi-Hop Bridge Recall** | 66.7% (Broken Bridges) | **100.0% (All Paths Intact)** | **+33.3% Multi-Hop Recall** |
 
 ---
 
-### Phase 3: LangGraph Adaptive Router & CRAG Telemetry
-Live telemetry captured across the 4 query classes:
+### Phase 3 Telemetry: LangGraph Adaptive Router & CRAG Self-Correction
 
-| Query Intent Class | Benchmark Query | Strategy | Hops | CRAG Grader Status | Autonomous Action | Latency |
-| :--- | :--- | :---: | :---: | :---: | :---: | :---: |
-| **`LEXICAL_LOOKUP`** | *"What exact dosage of Fluoxetine was administered in the ER?"* | Hybrid RRF | 0 | `SUFFICIENT` | Direct 0-Hop Retrieval | **63.1 ms** |
-| **`RELATIONAL_1HOP`** | *"Which specific cytochrome enzyme metabolizes Tramadol?"* | Tri-Modal | 1 | `SUFFICIENT` | 1-Hop Subgraph Retrieval | **88.4 ms** |
-| **`CAUSAL_MULTIHOP`** | *"Why did the patient develop serotonin toxicity after Tramadol?"* | Tri-Modal | 1 $\to$ 2 | `NEEDS_HOP_EXPANSION` | **Autonomous Expansion ($1 \to 2$ Hops)** | **139.2 ms** |
-| **`OUT_OF_DOMAIN`** | *"What is the capital of France and its GDP growth?"* | Fallback | 0 | `INSUFFICIENT_ABSTAIN` | **Hallucination Intercept (Abstain)** | **12.4 ms** |
-
----
-
-### Phase 4: Quantitative IR & Multi-Architecture Evaluation Suite
-Automated evaluation executed via `python -m benchmarks.evaluate_suite` across our 8-query Multi-Hop Relational Benchmark Suite:
-
-```
-─────────────────────────────────────────────────────────────────────────────────────────────────────────────
-                             Tri-Modal GraphRAG: Multi-Architecture Benchmark Matrix                         
-─────────────────────────────────────────────────────────────────────────────────────────────────────────────
- System Architecture                 Context Recall  Multi-Hop Recall  Entity Bridge  OOD Rejection  Latency 
-─────────────────────────────────────────────────────────────────────────────────────────────────────────────
- Pure Vector RAG (top_k=2)                    80.0%             66.7%          91.7%           0.0%  61.7 ms 
- Hybrid Search (Vector + BM25 RRF)            80.0%             66.7%         100.0%           0.0%  63.0 ms 
- Naive GraphRAG (Unresolved Entities)         80.0%             66.7%          91.7%           0.0% 117.0 ms 
- Adaptive CRAG Tri-Modal GraphRAG            100.0%            100.0%         100.0%         100.0%  84.3 ms 
-─────────────────────────────────────────────────────────────────────────────────────────────────────────────
-```
-
-#### Key Empirical Findings:
-1. **100% Multi-Hop Recall**: Adaptive CRAG Tri-Modal GraphRAG achieved **100.0% multi-hop recall**, retrieving every isolated document across complex clinical causal chains where all baseline architectures failed (capped at **66.7%**).
-2. **Zero Hallucination on Out-of-Domain Traps**: Pure Vector RAG and Hybrid RRF suffered from **0.0% OOD rejection** (e.g. attempting to force an answer for unrelated queries). Adaptive CRAG achieved **100.0% OOD rejection** via structural subgraph verification.
-3. **Sub-100ms Performance**: Native multi-model execution delivers complete adaptive routing, vector search, BM25 text ranking, and 2-hop graph traversal in **84.3 ms mean latency**.
+| Query Intent Class | Sample Query | Selected Mode | Hops Executed | CRAG Evaluator Outcome | Mean Latency |
+| :--- | :--- | :---: | :---: | :--- | :---: |
+| `LEXICAL_LOOKUP` | *"What exact dosage of Fluoxetine was administered in the ER?"* | `hybrid_rrf` | `0` | `SUFFICIENT` (Bypassed Graph) | **63.1 ms** |
+| `RELATIONAL_1HOP` | *"Which specific cytochrome enzyme is inhibited by Fluconazole?"* | `tri_modal` | `1` | `SUFFICIENT` (Pass 1 Complete) | **67.3 ms** |
+| `CAUSAL_MULTIHOP` | *"Trace the enzymatic interaction between Fluoxetine and Tramadol."* | `tri_modal` | `1 -> 2` | `NEEDS_HOP_EXPANSION` $\to$ `SUFFICIENT` | **139.2 ms** |
+| `OUT_OF_DOMAIN` | *"What is the metabolic interaction between Metformin and Lisinopril?"* | `tri_modal` | `1` | `INSUFFICIENT_ABSTAIN` (Guard Triggered) | **63.7 ms** |
 
 ---
 
-## 6. Interactive Explainable Subgraph Studio (FastAPI + Cytoscape.js)
+### Phase 4 Quantitative Evaluation: 4-Architecture Benchmark Matrix
+Reproducible via `python -m benchmarks.evaluate_suite` across the 8-query evaluation suite (2 lexical lookups, 2 single-hop relational queries, 2 three-document causal chains, and 2 out-of-domain hallucination traps):
 
-The project includes an interactive Explainable Subgraph Studio served directly via FastAPI and Cytoscape.js:
-
-```
-┌─────────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│ [API Health: 8 Nodes / 8 Edges]  [Interactive Subgraph Canvas (Cytoscape.js)]                           │
-│                                  • Fluoxetine ──(POTENTLY_INHIBITS)──> CYP2D6                           │
-│ Query Input & Presets:           • CYP2D6 ──(METABOLIZED_BY)──> Tramadol                                │
-│ [Causal Multi-Hop] [1-Hop]       • Tramadol ──(BLOCKADE_PRECIPITATES)──> Serotonin Syndrome             │
-│                                                                                                         │
-│ ┌──────────────────────────────┐ ┌────────────────────────────────────┐ ┌─────────────────────────────┐│
-│ │ LangGraph Reasoning Trace    │ │ Grounded Path-Cited Answer         │ │ Architecture Side-by-Side   ││
-│ │ • [00.0ms] Routed CAUSAL     │ │ Cites: Fluoxetine -> CYP2D6        │ │ Tri-Modal: 3/3 Chunks       ││
-│ │ • [22.4ms] 1-Hop Missing End │ │        Tramadol -> Serotonin       │ │ Pure Vector: Missed Doc 2   ││
-│ │ • [38.1ms] Autonomous Expand │ │ Verified Ground-Truth Evidence     │ │ Hybrid RRF: Missed Doc 2    ││
-│ └──────────────────────────────┘ └────────────────────────────────────┘ └─────────────────────────────┘│
-└─────────────────────────────────────────────────────────────────────────────────────────────────────────┘
-```
-
-### UI Features:
-* **Interactive Force-Directed Subgraph**: Color-coded by entity type (`Drug`, `Enzyme`, `AdverseEvent`). Nodes in the active reasoning path pulse in emerald green.
-* **Side-by-Side Retrieval Diff**: Automatically computes which ground-truth documents were missed by Pure Vector RAG and Hybrid RRF and successfully retrieved by Tri-Modal GraphRAG.
-* **Entity Inspector**: Clicking any graph node reveals its canonical name, mention count, description, and list of resolved aliases.
-* **Live Ingestion Tester**: Ingest arbitrary raw text and observe real-time SHA-256 deduplication and hybrid entity resolution.
-* **Benchmark Scorecard Tab**: Visualizes full empirical benchmark results directly inside the UI.
+| Architecture | Context Recall | Multi-Hop Recall | Entity Bridge Recall | OOD Trap Rejection | Mean Latency | P95 Latency |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: |
+| **Pure Vector RAG (`top_k=2`)** | 80.0% | 66.7% | 91.7% | 0.0% | 61.7 ms | 65.2 ms |
+| **Hybrid Search (BM25 + Vector RRF)** | 80.0% | 66.7% | 100.0% | 0.0% | 63.0 ms | 67.6 ms |
+| **Naive GraphRAG (Unresolved Entities)** | 80.0% | 66.7% | 91.7% | 0.0% | 117.0 ms | 120.5 ms |
+| **Adaptive CRAG Tri-Modal GraphRAG** | **100.0%** | **100.0%** | **100.0%** | **100.0%** | **84.3 ms** | **128.7 ms** |
 
 ---
 
-## 7. Repository Layout
+## 7. Engineering Trade-Offs & Complexity Analysis
 
-```
+1. **Write-Time vs. Read-Time Entity Resolution:**
+   * *Decision:* Entity deduplication runs synchronously during ingestion (`GraphIngestionPipeline`) rather than via fuzzy matching at query time.
+   * *Trade-off:* Increases ingestion latency by $\mathcal{O}(\vert{}V_{\text{type}}\vert{})$ per extracted entity, but guarantees that read-time graph traversals operate over clean canonical vertices in $\mathcal{O}(b^k)$ time without runtime string similarity joins.
+2. **Bounded BFS Traversal ($k \le 2$) & Supernode Mitigation:**
+   * *Decision:* Graph expansion uses `OPTIONS { uniqueVertices: "path", bfs: true }` with an adaptive ceiling of $k=2$ hops and edge confidence filtering (`e.confidence >= 0.75`).
+   * *Trade-off:* Unbounded graph traversals ($k \ge 4$) on dense graphs suffer from combinatorial fan-out ($\mathcal{O}(b^k)$ where $b$ is average vertex degree), flooding the LLM context window with low-relevance peripheral nodes. Starting at $k=1$ and only expanding to $k=2$ when the CRAG grader detects a missing target entity type keeps mean query latency at **84.3 ms**.
+3. **Reciprocal Rank Fusion ($k=60$) vs. Cross-Encoder Reranking:**
+   * *Decision:* Hybrid fusion is computed inside AQL via RRF rather than pulling 50 candidates into Python for neural cross-encoder reranking.
+   * *Trade-off:* Eliminates ~150–300 ms of CPU/GPU cross-encoder inference latency while still capturing exact lexical identifiers (dosages, enzyme codes) via `ArangoSearch` BM25 alongside dense semantic matches.
+
+---
+
+## 8. Explainable Subgraph Studio (FastAPI + Cytoscape.js)
+
+The repository ships with a zero-build single-page web application (`src/ui/index.html`) served by FastAPI (`src/api/app.py`):
+
+* **Force-Directed Property Graph Canvas:** Renders all canonical vertices and typed edges via Cytoscape.js. Executing a query highlights the active vector anchor nodes and the traversed $k$-hop reasoning path.
+* **LangGraph State Trace Inspector:** Displays real-time step latencies for intent routing, AQL execution, CRAG completeness grading, and autonomous hop expansion.
+* **Side-by-Side Retrieval Diff Matrix:** Compares retrieved document chunks across *Pure Vector*, *Hybrid RRF*, and *Tri-Modal GraphRAG* on every query to expose exactly which intermediate documents were bridged by the graph.
+* **Live Ingestion & Alias Inspector:** Click any vertex to inspect its consolidated `aliases[]` array, or submit raw text to test SHA-256 deduplication and entity resolution live.
+
+---
+
+## 9. Repository Structure
+
+```text
 arango-tri-modal-graphrag/
-├── docker-compose.yml              # ArangoDB 3.12.4+ container with FAISS vector index
-├── requirements.txt                # Production dependencies (python-arango, langgraph, fastapi, etc.)
-├── main.py                         # Unified system verification CLI runner
+├── .github/workflows/
+│   └── ci.yml                      # GitHub Actions CI (ArangoDB 3.12.4 service + pytest)
+├── docker-compose.yml              # ArangoDB 3.12.4 container with experimental FAISS index flag
+├── requirements.txt                # Python dependencies
+├── main.py                         # CLI verification & ablation benchmark runner
 ├── benchmarks/
-│   ├── evaluate_suite.py           # Quantitative 4-architecture evaluation benchmark suite
-│   └── benchmark_results.json      # Structured benchmark evaluation telemetry
+│   ├── evaluate_suite.py           # 4-architecture quantitative evaluation harness
+│   └── benchmark_results.json      # Exported latency & recall telemetry
 ├── src/
 │   ├── db/
-│   │   └── schema.py               # Multi-model schema architect (FAISS index, ArangoSearch BM25, Graph)
+│   │   └── schema.py               # Collections, named graph, persistent indexes, ArangoSearch view
 │   ├── ingestion/
-│   │   ├── seed_data.py            # Multi-Hop Relational Benchmark Corpus
-│   │   ├── extractor.py            # Structured Pydantic v2 ontology extractor
+│   │   ├── seed_data.py            # 6-document Multi-Hop Relational Benchmark Corpus
+│   │   ├── extractor.py            # Pydantic v2 structured entity & relation extractor
 │   │   ├── entity_resolver.py      # 3-signal hybrid entity deduplication engine
-│   │   └── pipeline.py             # SHA-256 incremental ingestion pipeline & Phase 2 ablation
+│   │   └── pipeline.py             # SHA-256 content-addressed ingestion pipeline
 │   ├── retrieval/
-│   │   └── retriever.py            # Tri-Modal AQL retriever (Vector, BM25 RRF, k-Hop Traversal)
+│   │   └── retriever.py            # Pure Vector, Hybrid RRF, and Tri-Modal AQL queries
 │   ├── agent/
-│   │   ├── state.py                # LangGraph TypedDict agent state schema
+│   │   ├── state.py                # LangGraph TypedDict state schema
 │   │   ├── nodes.py                # Router, Retriever, CRAG Grader, Hop Expander, Synthesizer
-│   │   └── workflow.py             # LangGraph StateGraph compiler & Phase 3 runner
+│   │   └── workflow.py             # Compiled StateGraph workflow
 │   ├── api/
-│   │   └── app.py                  # FastAPI production web service (6 endpoints)
+│   │   └── app.py                  # FastAPI service with lifespan warmup & auto-seeding guard
 │   └── ui/
-│       └── index.html              # Dark-mode Cytoscape.js Explainable Subgraph Studio
+│       └── index.html              # Cytoscape.js Explainable Subgraph Studio
 └── tests/
-    └── test_api.py                 # Automated FastAPI integration and contract test suite
+    └── test_api.py                 # 7 integration & contract tests
 ```
 
 ---
 
-## 8. Quickstart & Reproduction Guide
+## 10. Quickstart & Reproduction
 
-### Prerequisites
-* **Docker & Docker Compose** (version 20.10+)
-* **Python 3.10+** (tested on Python 3.10, 3.11, 3.12, 3.14)
-
-### 1. Launch ArangoDB Container
+### 1. Start ArangoDB 3.12.4
 ```bash
 docker-compose up -d
 ```
-Verify ArangoDB is running on `http://localhost:8529`.
 
-### 2. Install Python Dependencies
+### 2. Install Dependencies
 ```bash
-python -m pip install -r requirements.txt
+pip install -r requirements.txt
 ```
 
-### 3. Run Unified Verification Runner
-Initializes the multi-model schema, ingests the clinical dataset, runs Phase 2 deduplication, executes Phase 3 LangGraph query routing, and prints retrieval comparisons:
+### 3. Run the CLI Ablation & Agentic Benchmark
+Executes Phase 2 entity resolution ablation (Naive vs. Resolved) and Phase 3 LangGraph CRAG scenarios in the terminal:
 ```bash
 python main.py
 ```
 
-### 4. Run Quantitative IR Evaluation Suite (Phase 4)
-Runs the 4-system evaluation benchmark against all 8 ground-truth test queries:
+### 4. Run the Quantitative 4-Architecture Evaluation Suite
 ```bash
 python -m benchmarks.evaluate_suite
 ```
-*Results are rendered in a Rich terminal table and exported to `benchmarks/benchmark_results.json`.*
 
-### 5. Launch FastAPI & Interactive Cytoscape Studio
+### 5. Launch the Interactive Subgraph Studio
 ```bash
 uvicorn src.api.app:app --host 0.0.0.0 --port 8000 --reload
 ```
-Open your browser to:
-* **Interactive Studio**: [http://localhost:8000/](http://localhost:8000/)
-* **Interactive Swagger Docs**: [http://localhost:8000/docs](http://localhost:8000/docs)
+* **Subgraph Studio UI:** `http://localhost:8000/`
+* **OpenAPI Documentation:** `http://localhost:8000/docs`
 
-### 6. Run Automated Test Suite
+### 6. Run the Automated Test Suite
 ```bash
 pytest tests/test_api.py -v
-```
-All 7 integration tests will execute and pass:
-```
-============================= 7 passed in 20.12s ==============================
 ```
 
 ---
 
 ## License
-MIT License. Open-source and free for commercial and academic research.
-
+Released under the [MIT License](LICENSE).
